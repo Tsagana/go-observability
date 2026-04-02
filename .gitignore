@@ -1,0 +1,12 @@
+# Environment
+.env
+
+# Go
+bin/
+*.exe
+*.test
+*.out
+
+# IDE
+.idea/
+.vscode/
