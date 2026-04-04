@@ -1,33 +1,31 @@
 package main
 
 import (
-	"encoding/json"
+	"context"
+	"go-observability/internal/api"
+	"go-observability/internal/db"
+	"go-observability/internal/job"
 	"log"
 	"net/http"
+	"os"
 )
 
 func main() {
-	mux := http.NewServeMux()
+	//Init context
+	ctx := context.Background()
+	dbpool, err := db.Connect(ctx, os.Getenv("DATABASE_URL"))
 
-	mux.HandleFunc("/healthz", healthz)
-	// TODO: jobs handler (POST only)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	store := job.NewStore(dbpool)
+	handler := api.NewHandler(store)
+
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
 
 	addr := ":8080"
 	log.Printf("listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
-}
-
-func healthz(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("ok health here"))
-}
-
-func createJobStub(w http.ResponseWriter, r *http.Request) {
-	// TODO
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
 }
