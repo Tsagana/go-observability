@@ -9,6 +9,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+type Storer interface {
+	Claim(ctx context.Context) (*Job, error)
+	Complete(ctx context.Context, id string, result []byte) error
+	Fail(ctx context.Context, job *Job) (*Job, error)
+}
+
 type Store struct {
 	db *pgxpool.Pool
 }

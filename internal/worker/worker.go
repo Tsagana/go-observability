@@ -9,12 +9,13 @@ import (
 )
 
 type Worker struct {
-	store        *job.Store
+	store        job.Storer
 	pollInterval time.Duration
+	processFn    func(*job.Job) ([]byte, error)
 }
 
-func New(store *job.Store, pollInterval time.Duration) *Worker {
-	return &Worker{store: store, pollInterval: pollInterval}
+func New(store job.Storer, pollInterval time.Duration) *Worker {
+	return &Worker{store: store, pollInterval: pollInterval, processFn: process}
 }
 
 func (w *Worker) Run(ctx context.Context) {
@@ -40,7 +41,7 @@ func (w *Worker) processNext(ctx context.Context) {
 		return
 	}
 
-	res, err := process(job)
+	res, err := w.processFn(job)
 
 	if err != nil {
 		_, err = w.store.Fail(ctx, job)
