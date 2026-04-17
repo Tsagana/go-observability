@@ -5,9 +5,11 @@ import (
 	"go-observability/internal/api"
 	"go-observability/internal/db"
 	"go-observability/internal/job"
+	"go-observability/internal/worker"
 	"log"
 	"net/http"
 	"os"
+	"time"
 )
 
 func main() {
@@ -24,6 +26,10 @@ func main() {
 
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
+
+	//Run worker
+	w := worker.New(store, 2*time.Second)
+	go w.Run(ctx)
 
 	addr := ":8080"
 	log.Printf("listening on %s", addr)
