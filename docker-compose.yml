@@ -30,15 +30,16 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD:-app}
       DB_SSLMODE: "disable"
       DATABASE_URL: "postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@db:5432/${POSTGRES_DB:-app}?sslmode=disable"
+      WORKER_COUNT: "5"
+      JOB_CHANNEL_BUFFER: "5"
+      POLL_INTERVAL: "2s"
     ports:
       - "8081:8080"
+    stop_grace_period: 30s
     depends_on:
       db:
         condition: service_healthy
-    volumes:
-      - .:/app
-    working_dir: /app
-    command: ["go", "run", "./cmd/server"]
+    command: ["./server"]
 
 volumes:
   pgdata:

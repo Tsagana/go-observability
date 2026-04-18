@@ -9,13 +9,17 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"strconv"
+	"syscall"
 	"time"
 )
 
 func main() {
 	//Init context
-	ctx := context.Background()
-	dbpool, err := db.Connect(ctx, os.Getenv("DATABASE_URL"))
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	dbpool, err := db.Connect(context.Background(), os.Getenv("DATABASE_URL"))
 
 	if err != nil {
 		log.Fatal(err)
@@ -27,9 +31,21 @@ func main() {
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 
-	//Run worker
-	w := worker.New(store, 2*time.Second)
-	go w.Run(ctx)
+	workerCount, _ := strconv.Atoi(os.Getenv("WORKER_COUNT"))
+	if workerCount == 0 {
+		workerCount = 5
+	}
+	bufferSize, _ := strconv.Atoi(os.Getenv("JOB_CHANNEL_BUFFER"))
+	if bufferSize == 0 {
+		bufferSize = workerCount
+	}
+	pollInterval, _ := time.ParseDuration(os.Getenv("POLL_INTERVAL"))
+	if pollInterval == 0 {
+		pollInterval = 2 * time.Second
+	}
+
+	dispatcher := worker.NewDispatcher(store, workerCount, bufferSize, pollInterval)
+	go dispatcher.Run(ctx)
 
 	addr := ":8080"
 	log.Printf("listening on %s", addr)
