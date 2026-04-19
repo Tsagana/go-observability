@@ -44,8 +44,22 @@ func main() {
 		pollInterval = 2 * time.Second
 	}
 
+	//Job workers dispatcher
 	dispatcher := worker.NewDispatcher(store, workerCount, bufferSize, pollInterval)
 	go dispatcher.Run(ctx)
+
+	//Stuck jobs reaper
+	interval, _ := time.ParseDuration(os.Getenv("REAPER_INTERVAL"))
+	if interval == 0 {
+		interval = 60 * time.Second
+	}
+	stuckJobTimeout, _ := time.ParseDuration(os.Getenv("STUCK_JOB_TIMEOUT"))
+	if stuckJobTimeout == 0 {
+		stuckJobTimeout = 300 * time.Second
+	}
+
+	reaper := worker.NewReaper(store, interval, stuckJobTimeout)
+	go reaper.Run(ctx)
 
 	addr := ":8080"
 	log.Printf("listening on %s", addr)

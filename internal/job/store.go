@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -13,6 +14,7 @@ type Storer interface {
 	Claim(ctx context.Context) (*Job, error)
 	Complete(ctx context.Context, id string, result []byte) error
 	Fail(ctx context.Context, job *Job) (*Job, error)
+	RecoverStuck(ctx context.Context, timeout time.Duration) (int, error)
 }
 
 type Store struct {
@@ -144,4 +146,37 @@ func (s *Store) Fail(ctx context.Context, job *Job) (*Job, error) {
 	log.Println("Job failed ", job.ID)
 	return job, nil
 
+}
+
+func (s *Store) RecoverStuck(ctx context.Context, timeout time.Duration) (int, error) {
+	updateQuery := `
+		UPDATE jobs SET status = 'failed', updated_at = NOW()
+		WHERE status = 'processing'
+  			AND retry_count >= $1
+  			AND updated_at < now() - $2 * interval '1 second'
+    `
+	_, updateErr := s.db.Exec(ctx, updateQuery, MaxRetry, timeout.Seconds())
+	if updateErr != nil {
+		return 0, updateErr
+	}
+
+	updateQuery = `
+		UPDATE jobs SET 
+		status = 'pending',
+		retry_count = retry_count + 1,
+		retry_after = now() + (interval '1 second' * power(2, retry_count)), 
+		updated_at = NOW()
+		WHERE status = 'processing'
+		and updated_at < now() - $1 * interval '1 second'
+		RETURNING id
+    `
+	ids, updateErr := s.db.Query(ctx, updateQuery, timeout.Seconds())
+	if updateErr != nil {
+		return 0, updateErr
+	}
+	count := 0
+	for ids.Next() {
+		count++
+	}
+	return count, nil
 }

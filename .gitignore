@@ -10,3 +10,7 @@ bin/
 # IDE
 .idea/
 .vscode/
+
+#Docs
+leetcode-plan.md
+prep-plan-revised.md
