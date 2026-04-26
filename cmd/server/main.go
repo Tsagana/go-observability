@@ -7,6 +7,7 @@ import (
 	"go-observability/internal/job"
 	"go-observability/internal/worker"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,6 +20,9 @@ func main() {
 	//Init context
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
+
 	dbpool, err := db.Connect(context.Background(), os.Getenv("DATABASE_URL"))
 
 	if err != nil {

@@ -2,7 +2,7 @@ package api
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"go-observability/internal/job"
@@ -35,7 +35,7 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 
 	createdJob, err := h.store.Create(r.Context(), req.Payload)
 	if err != nil {
-		log.Println("store.Create error:", err)
+		slog.Error("store.create failed", "error", err)
 		http.Error(w, "error when creating job", http.StatusInternalServerError)
 		return
 	}
@@ -47,7 +47,7 @@ func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	job, err := h.store.Get(r.Context(), id)
 	if err != nil {
-		log.Println("store.Get error:", err)
+		slog.Error("store.get failed", "error", err)
 		http.Error(w, "error when getting job", http.StatusInternalServerError)
 		return
 	}

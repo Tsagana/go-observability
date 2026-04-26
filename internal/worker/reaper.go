@@ -2,7 +2,7 @@ package worker
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	"go-observability/internal/job"
@@ -26,9 +26,9 @@ func (r *Reaper) Run(ctx context.Context) {
 		case <-time.After(r.interval):
 			count, err := r.store.RecoverStuck(ctx, r.stuckJobTimeout)
 			if err != nil {
-				log.Println("Stuck jobs recovery failed", err)
+				slog.Error("store.recoverStuck failed", "error", err)
 			}
-			log.Printf("recovered %d stuck jobs", count)
+			slog.Info("reaper.recovered", "count", count)
 		}
 	}
 }
