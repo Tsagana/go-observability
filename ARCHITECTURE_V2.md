@@ -128,46 +128,98 @@ You need logging in place before integrating AI calls. Concurrent API calls with
 
 ---
 
-### V2d — AI processing
+### V2d — AI processing (agentic)
 
 **Problem it solves:**
-The worker stub (simulated sleep) doesn't test reliability patterns with real stakes. An AI API call does — it's slow, fails transiently, costs money on duplicates, and has rate limits that make backoff matter.
+The worker stub (simulated sleep) doesn't test reliability patterns with real stakes. A multi-step agentic loop does — it's slow, fails transiently at multiple layers, costs money on duplicates, has rate limits that make backoff matter, and runs for *N* steps where any step can fail. This turns the worker into a durable agent runtime: the kind of substrate real LLM workflows need.
 
 **Design:**
-Replace the execute stub with a real Anthropic API call. One job type, one prompt, one result. Keep it simple — the architecture is the point, not the AI capability.
+Replace the execute stub with a bounded tool-use loop against the Anthropic API. The job payload describes an agentic task; the worker drives the conversation until the model emits `end_turn` or a step ceiling is hit. State persists after every step so a crashed loop resumes instead of restarting.
 
 ```
-job payload:  { "text": "..." }
-worker calls: Anthropic Claude API (summarization prompt)
-job result:   { "summary": "..." }
+job payload: {
+  "system_prompt": "...",
+  "user_message":  "...",
+  "tools":         [...],   // schemas the agent is allowed to call
+  "max_steps":     25
+}
+
+worker loop:
+  while not done and step_count < max_steps:
+    resp = anthropic.Messages.Create(messages, tools)
+    append resp to messages
+    if resp.stop_reason == "end_turn": done
+    if resp.stop_reason == "tool_use":
+      results = execute_tools(resp.tool_calls)
+      append results to messages
+      persist(messages, step_count)   // resumable checkpoint
+
+job result: {
+  "final_message": "...",
+  "steps":         N,
+  "stop_reason":   "end_turn"
+}
 ```
+
+One job type, one allowed tool set per job, one final answer. The architecture is the point, not the agent's capability — keep tools minimal (e.g. `http_get`, `read_file`, `calculator`).
+
+**Why this shape:**
+A single API call wouldn't exercise the interesting failure modes. A loop does. Each iteration adds independent retry, timeout, and idempotency concerns, and the persisted conversation state turns the worker into a resumable state machine within a state machine — which is the whole reliability story.
 
 **Error classification:**
-Not all errors are equal. The worker must distinguish:
+Errors now come from two layers (API and tool execution) and must be classified separately:
 
-| Error type | Example | Action |
-|---|---|---|
-| Retryable | 429 Rate Limited, 503 Unavailable | retry with backoff |
-| Permanent | 400 Bad Request, invalid prompt | mark failed immediately |
-| Timeout | context deadline exceeded | retry with backoff |
+| Layer | Error type | Example | Action |
+|---|---|---|---|
+| API | Retryable | 429 Rate Limited, 503 Unavailable | retry call with backoff, same step |
+| API | Permanent | 400 Bad Request, invalid tool schema | mark job failed immediately |
+| API | Timeout | context deadline exceeded | retry call with backoff |
+| Tool | Recoverable | HTTP 500 from `http_get`, parse error | return as `tool_result` with `is_error: true`, let model recover |
+| Tool | Fatal | tool panic, schema violation in worker code | mark job failed immediately |
+| Loop | Bounded | `max_steps` exceeded | mark job failed, do not retry |
+
+The recoverable-tool case is the agentic part: tool failures are fed back to the model, not bubbled up. The model often recovers by trying a different argument or tool, which is exactly the behavior to verify works end-to-end.
 
 **The idempotency problem:**
-Sequence that causes duplicate API calls:
-1. Worker calls Claude API — succeeds, result returned
-2. Worker begins writing result to DB
+The window for duplicate spend now exists at every step, not just once. Sequence that causes duplicate API calls:
+
+1. Worker calls Claude API at step 7 — succeeds, response returned
+2. Worker begins persisting updated message history
 3. Worker crashes before commit
 4. Job recovered by reaper, retried
-5. Worker calls Claude API again — paid twice, different result possible
+5. Worker re-runs from last persisted state — if step 7's response wasn't persisted, it's paid for twice
 
-The fix: write the API response and mark the job complete in a single transaction. No gap between "got result" and "stored result."
+The fix: after every successful API response, append the assistant message to the persisted `messages` array and bump `step_count` in a single transaction. No gap between "got step result" and "stored step result." The same applies to terminal completion: writing the final result and marking the job `completed` is one transaction.
+
+This means the persisted conversation history *is* the resumption point. A new worker picking up the job sends the existing `messages` array straight back to the API and continues from there — no replay, no re-execution.
 
 **Timeout handling:**
-Set a context timeout on the API call. Must be shorter than `STUCK_JOB_TIMEOUT` so the worker times out and retries cleanly before the reaper considers the job stuck.
+Two timeout scopes now matter:
+
+- `AI_STEP_TIMEOUT` — per-API-call. Must be shorter than `STUCK_JOB_TIMEOUT` so a single hung step doesn't masquerade as a stuck job.
+- `AI_JOB_TIMEOUT` — total wall time for the whole loop. Independent of step count; protects against pathological cases where every step is slow but legal.
+
+The reaper's stuck-job threshold should be raised for agent jobs (loops legitimately run minutes). Use `last_step_at` — updated on every persist — to distinguish a slow-but-progressing loop from a hung one. A worker that hasn't bumped `last_step_at` within `STUCK_JOB_TIMEOUT` is genuinely stuck.
+
+**Bounded execution:**
+`max_steps` is a hard ceiling enforced by the worker, not the model. Hitting it marks the job failed (terminal — do not retry; a job that didn't converge in *N* steps won't converge in *N* steps next time either). Logged with the full message history for debugging.
 
 **Configuration:**
 - `ANTHROPIC_API_KEY` — API key, never hardcoded
-- `AI_TIMEOUT` — per-call timeout. Default: 30s
-- `AI_MAX_RETRIES` — max retry attempts for rate limits. Separate from job max_retries.
+- `AI_STEP_TIMEOUT` — per-API-call timeout. Default: 30s
+- `AI_JOB_TIMEOUT` — full-loop timeout. Default: 5m
+- `AI_MAX_RETRIES` — max retry attempts per step for rate limits. Separate from job `max_retries`
+- `AI_DEFAULT_MAX_STEPS` — fallback step ceiling if payload omits one. Default: 25
+
+**Observability (leans on V2c):**
+Per-step structured logs: `job_id`, `step`, `input_tokens`, `output_tokens`, `stop_reason`, `tool_names_called`, `tool_latency_ms`, `api_latency_ms`. This is what makes agent loops debuggable, and it makes "how many tokens did job X consume across its 14 steps" a one-query answer.
+
+---
+
+Two open questions worth flagging before you start coding:
+
+1. **Tool result persistence granularity.** Persisting after the assistant message is enough for resumption, but if a tool call itself is expensive (paid API, side effects), you may want to persist tool results before the *next* API call too. For V2d with cheap tools, the simpler model is fine.
+2. **Whether to allow agents to enqueue new jobs as a tool.** Natural V3 extension (fan-out, multi-agent). Explicitly out of scope here, but worth designing the tool registry so it's a clean addition later.
 
 ---
 

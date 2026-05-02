@@ -14,6 +14,7 @@ type Storer interface {
 	Claim(ctx context.Context) (*Job, error)
 	Complete(ctx context.Context, id string, result []byte) error
 	Fail(ctx context.Context, job *Job) (*Job, error)
+	FailPermanently(ctx context.Context, id string, errMsg string) error
 	RecoverStuck(ctx context.Context, timeout time.Duration) (int, error)
 }
 
@@ -146,6 +147,18 @@ func (s *Store) Fail(ctx context.Context, job *Job) (*Job, error) {
 	log.Println("Job failed ", job.ID)
 	return job, nil
 
+}
+
+func (s *Store) FailPermanently(ctx context.Context, id string, errMsg string) error {
+	updateQuery := `
+		UPDATE jobs SET status='failed', error=$1, updated_at = NOW()
+		WHERE id=$2
+    `
+	_, updateErr := s.db.Exec(ctx, updateQuery, errMsg, id)
+	if updateErr != nil {
+		return updateErr
+	}
+	return nil
 }
 
 func (s *Store) RecoverStuck(ctx context.Context, timeout time.Duration) (int, error) {

@@ -62,26 +62,35 @@ func (d *Dispatcher) runWorker(ctx context.Context, id int) {
 	defer d.wg.Done()
 	defer slog.Info("worker.stopped", "worker_id", id)
 
-	for job := range d.jobs {
-		slog.Info("job.claimed", "job_id", job.ID, "worker_id", id)
+	for j := range d.jobs {
+		slog.Info("job.claimed", "job_id", j.ID, "worker_id", id)
 		timeBeforeStart := time.Now()
-		res, err := process(job)
+		res, err := process(j)
 		writeCtx := context.WithoutCancel(ctx)
 		if err != nil {
-			slog.Error("job.failed", "job_id", job.ID, "worker_id", id, "error", err)
-			_, err = d.store.Fail(writeCtx, job)
-			if err != nil {
-				slog.Error("store.fail failed", "error", err)
+			if job.IsRetryable(err) {
+				slog.Error("job.failed", "job_id", j.ID, "worker_id", id, "error", err)
+				_, err = d.store.Fail(writeCtx, j)
+				if err != nil {
+					slog.Error("store.fail failed", "error", err)
+				}
+				continue
+			} else {
+				slog.Error("job.failed.permanent", "job_id", j.ID, "worker_id", id, "error", err)
+				err = d.store.FailPermanently(writeCtx, j.ID, err.Error())
+				if err != nil {
+					slog.Error("store.failPermanently failed", "error", err)
+				}
+				continue
 			}
-			continue
 		}
-		err = d.store.Complete(writeCtx, job.ID, res)
+		err = d.store.Complete(writeCtx, j.ID, res)
 
 		if err != nil {
 			slog.Error("store.complete failed", "error", err)
 		} else {
 			duration := time.Since(timeBeforeStart).Milliseconds()
-			slog.Info("job.completed", "job_id", job.ID, "worker_id", id, "duration_ms", duration)
+			slog.Info("job.completed", "job_id", j.ID, "worker_id", id, "duration_ms", duration)
 		}
 	}
 }
