@@ -1,14 +1,27 @@
 package worker
 
 import (
-	"log"
-	"time"
-
+	"context"
+	"encoding/json"
+	"go-observability/internal/ai"
 	"go-observability/internal/job"
 )
 
-func process(j *job.Job) ([]byte, error) {
-	time.Sleep(15 * time.Second) // simulate slow job
-	log.Printf("processing job %s", j.ID)
-	return []byte(`{"result": true}`), nil
+func process(ctx context.Context, j *job.Job, client *ai.Client) ([]byte, error) {
+	var payload ai.AgentPayload
+	if err := json.Unmarshal(j.Payload, &payload); err != nil {
+		return nil, job.NewPermanent(err)
+	}
+
+	result, err := client.RunAgentLoop(ctx, payload)
+	if err != nil {
+		return nil, err
+	}
+
+	out, err := json.Marshal(result)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+
 }

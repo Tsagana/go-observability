@@ -35,7 +35,8 @@ services:
       POLL_INTERVAL: "2s"
       STUCK_JOB_TIMEOUT: "30s"
       REAPER_INTERVAL: "10s"
-      
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+
     ports:
       - "8081:8080"
     stop_grace_period: 30s

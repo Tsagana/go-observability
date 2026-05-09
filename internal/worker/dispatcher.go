@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"go-observability/internal/ai"
 	"go-observability/internal/job"
 )
 
@@ -15,14 +16,16 @@ type Dispatcher struct {
 	workerCount  int
 	pollInterval time.Duration
 	wg           sync.WaitGroup
+	aiClient     *ai.Client
 }
 
-func NewDispatcher(store job.Storer, workerCount int, bufferSize int, pollInterval time.Duration) *Dispatcher {
+func NewDispatcher(store job.Storer, workerCount int, bufferSize int, pollInterval time.Duration, aiClient *ai.Client) *Dispatcher {
 	return &Dispatcher{
 		store:        store,
 		jobs:         make(chan *job.Job, bufferSize),
 		workerCount:  workerCount,
 		pollInterval: pollInterval,
+		aiClient:     aiClient,
 	}
 }
 
@@ -65,7 +68,8 @@ func (d *Dispatcher) runWorker(ctx context.Context, id int) {
 	for j := range d.jobs {
 		slog.Info("job.claimed", "job_id", j.ID, "worker_id", id)
 		timeBeforeStart := time.Now()
-		res, err := process(j)
+		res, err := process(ctx, j, d.aiClient)
+
 		writeCtx := context.WithoutCancel(ctx)
 		if err != nil {
 			if job.IsRetryable(err) {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"go-observability/internal/ai"
 	"go-observability/internal/api"
 	"go-observability/internal/db"
 	"go-observability/internal/job"
@@ -48,8 +49,32 @@ func main() {
 		pollInterval = 2 * time.Second
 	}
 
-	//Job workers dispatcher
-	dispatcher := worker.NewDispatcher(store, workerCount, bufferSize, pollInterval)
+	// AI client
+	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	if apiKey == "" {
+		log.Fatal("ANTHROPIC_API_KEY is required")
+	}
+	stepTimeout, _ := time.ParseDuration(os.Getenv("AI_STEP_TIMEOUT"))
+	if stepTimeout == 0 {
+		stepTimeout = 30 * time.Second
+	}
+	jobTimeout, _ := time.ParseDuration(os.Getenv("AI_JOB_TIMEOUT"))
+	if jobTimeout == 0 {
+		jobTimeout = 5 * time.Minute
+	}
+	aiMaxRetries, _ := strconv.Atoi(os.Getenv("AI_MAX_RETRIES"))
+	if aiMaxRetries == 0 {
+		aiMaxRetries = 3
+	}
+	aiDefaultMaxSteps, _ := strconv.Atoi(os.Getenv("AI_DEFAULT_MAX_STEPS"))
+	if aiDefaultMaxSteps == 0 {
+		aiDefaultMaxSteps = 25
+	}
+	aiClient := ai.NewClient(apiKey, stepTimeout, jobTimeout, aiMaxRetries, aiDefaultMaxSteps)
+
+	// Job workers dispatcher
+	dispatcher := worker.NewDispatcher(store, workerCount, bufferSize, pollInterval, aiClient)
+
 	go dispatcher.Run(ctx)
 
 	//Stuck jobs reaper
