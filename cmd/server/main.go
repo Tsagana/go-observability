@@ -6,6 +6,7 @@ import (
 	"go-observability/internal/api"
 	"go-observability/internal/db"
 	"go-observability/internal/job"
+	redisclient "go-observability/internal/redis"
 	"go-observability/internal/worker"
 	"log"
 	"log/slog"
@@ -25,10 +26,20 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
 
 	dbpool, err := db.Connect(context.Background(), os.Getenv("DATABASE_URL"))
-
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		redisURL = "redis://localhost:6379"
+	}
+	rdb, err := redisclient.Connect(context.Background(), redisURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rdb.Close()
+	slog.Info("redis.connected", "url", redisURL)
 
 	store := job.NewStore(dbpool)
 	handler := api.NewHandler(store)
@@ -92,5 +103,15 @@ func main() {
 
 	addr := ":8080"
 	log.Printf("listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	srv := &http.Server{Addr: addr, Handler: mux}
+
+	go func() {
+		<-ctx.Done()
+		srv.Shutdown(context.Background())
+	}()
+
+	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+		log.Fatal(err)
+	}
+
 }

@@ -1,4 +1,15 @@
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: go_proj_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
   db:
     image: postgres:16
     container_name: go_proj_db
@@ -36,12 +47,18 @@ services:
       STUCK_JOB_TIMEOUT: "30s"
       REAPER_INTERVAL: "10s"
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      REDIS_URL: "redis://redis:6379"
+      QUEUE_PENDING_KEY: "jobs:pending"
+      QUEUE_PROCESSING_KEY: "jobs:processing"
+      QUEUE_CLAIM_TIMEOUT: "5s"
 
     ports:
       - "8081:8080"
     stop_grace_period: 30s
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     command: ["./server"]
 
