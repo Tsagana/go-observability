@@ -2,30 +2,32 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
 
 	"go-observability/internal/ai"
 	"go-observability/internal/job"
+	"go-observability/internal/queue"
 )
 
 type Dispatcher struct {
-	store        job.Storer
-	jobs         chan *job.Job
-	workerCount  int
-	pollInterval time.Duration
-	wg           sync.WaitGroup
-	aiClient     *ai.Client
+	store       job.Storer
+	jobs        chan *job.Job
+	workerCount int
+	queue       queue.Queue
+	wg          sync.WaitGroup
+	aiClient    *ai.Client
 }
 
-func NewDispatcher(store job.Storer, workerCount int, bufferSize int, pollInterval time.Duration, aiClient *ai.Client) *Dispatcher {
+func NewDispatcher(store job.Storer, workerCount int, bufferSize int, queue queue.Queue, aiClient *ai.Client) *Dispatcher {
 	return &Dispatcher{
-		store:        store,
-		jobs:         make(chan *job.Job, bufferSize),
-		workerCount:  workerCount,
-		pollInterval: pollInterval,
-		aiClient:     aiClient,
+		store:       store,
+		jobs:        make(chan *job.Job, bufferSize),
+		workerCount: workerCount,
+		queue:       queue,
+		aiClient:    aiClient,
 	}
 }
 
@@ -36,27 +38,39 @@ func (d *Dispatcher) Run(ctx context.Context) {
 		go d.runWorker(ctx, i)
 		slog.Info("worker.started", "worker_id", i)
 	}
-	d.poll(ctx)
+	d.claim(ctx)
 	close(d.jobs)
 	d.wg.Wait()
 }
 
-func (d *Dispatcher) poll(ctx context.Context) {
+func (d *Dispatcher) claim(ctx context.Context) {
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			job, err := d.store.Claim(ctx)
-			if err != nil || job == nil {
-				time.Sleep(d.pollInterval)
-				continue
-			}
-			select {
-			case d.jobs <- job:
-			case <-ctx.Done():
+		id, err := d.queue.Claim(ctx)
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
 				return
 			}
+			slog.Error("dispatcher.claim failed", "error", err)
+			continue
+		}
+		if id == "" {
+			continue
+		}
+
+		job, err := d.store.Get(ctx, id)
+		if err != nil {
+			slog.Error("store.get failed", "error", err)
+			continue
+		}
+		err = d.store.MarkProcessing(ctx, id)
+		if err != nil {
+			slog.Error("store.markProcessing failed", "error", err)
+			continue
+		}
+		select {
+		case d.jobs <- job:
+		case <-ctx.Done():
+			return
 		}
 	}
 }

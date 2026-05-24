@@ -11,8 +11,10 @@ import (
 )
 
 type Storer interface {
-	Claim(ctx context.Context) (*Job, error)
+	Claim(ctx context.Context) (*Job, error) //not used anymore
 	Complete(ctx context.Context, id string, result []byte) error
+	Get(ctx context.Context, id string) (*Job, error)
+	MarkProcessing(ctx context.Context, id string) error
 	Fail(ctx context.Context, job *Job) (*Job, error)
 	FailPermanently(ctx context.Context, id string, errMsg string) error
 	RecoverStuck(ctx context.Context, timeout time.Duration) (int, error)
@@ -61,6 +63,18 @@ func (s *Store) Get(ctx context.Context, id string) (*Job, error) {
 	}
 
 	return &j, nil
+}
+
+func (s *Store) MarkProcessing(ctx context.Context, id string) error {
+	updateQuery := `
+		UPDATE jobs SET status = 'processing', updated_at = NOW()
+		WHERE id=$1
+    `
+	_, updateErr := s.db.Exec(ctx, updateQuery, id)
+	if updateErr != nil {
+		return updateErr
+	}
+	return nil
 }
 
 func (s *Store) Claim(ctx context.Context) (*Job, error) {

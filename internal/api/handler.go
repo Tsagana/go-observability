@@ -6,14 +6,16 @@ import (
 	"net/http"
 
 	"go-observability/internal/job"
+	"go-observability/internal/queue"
 )
 
 type Handler struct {
 	store *job.Store
+	queue queue.Queue
 }
 
-func NewHandler(store *job.Store) *Handler {
-	return &Handler{store: store}
+func NewHandler(store *job.Store, queue queue.Queue) *Handler {
+	return &Handler{store: store, queue: queue}
 }
 
 type createJobRequest struct {
@@ -38,6 +40,11 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 		slog.Error("store.create failed", "error", err)
 		http.Error(w, "error when creating job", http.StatusInternalServerError)
 		return
+	}
+
+	err = h.queue.Push(r.Context(), createdJob.ID)
+	if err != nil {
+		slog.Error("queue.push failed", "error", err)
 	}
 
 	writeJSON(w, http.StatusAccepted, createJobResponse{ID: createdJob.ID, Status: createdJob.Status})
