@@ -17,7 +17,9 @@ type Storer interface {
 	MarkProcessing(ctx context.Context, id string) error
 	Fail(ctx context.Context, job *Job) (*Job, error)
 	FailPermanently(ctx context.Context, id string, errMsg string) error
-	RecoverStuck(ctx context.Context, timeout time.Duration) (int, error)
+	//RecoverStuck(ctx context.Context, timeout time.Duration) (int, error)
+	ResetToPending(ctx context.Context, id string) error
+	GetRetryReadyPending(ctx context.Context) ([]string, error)
 }
 
 type Store struct {
@@ -173,6 +175,37 @@ func (s *Store) FailPermanently(ctx context.Context, id string, errMsg string) e
 		return updateErr
 	}
 	return nil
+}
+
+func (s *Store) ResetToPending(ctx context.Context, id string) error {
+	updateQuery := `
+		UPDATE jobs SET status='pending', retry_count=retry_count+1, updated_at=NOW() 
+		WHERE id=$1
+    `
+	_, updateErr := s.db.Exec(ctx, updateQuery, id)
+	if updateErr != nil {
+		return updateErr
+	}
+	return nil
+}
+
+func (s *Store) GetRetryReadyPending(ctx context.Context) ([]string, error) {
+	query := `SELECT id FROM jobs WHERE status='pending' AND (retry_after IS NULL OR retry_after < NOW())`
+	rows, err := s.db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 func (s *Store) RecoverStuck(ctx context.Context, timeout time.Duration) (int, error) {

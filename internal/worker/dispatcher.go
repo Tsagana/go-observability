@@ -47,7 +47,7 @@ func (d *Dispatcher) claim(ctx context.Context) {
 	for {
 		id, err := d.queue.Claim(ctx)
 		if err != nil {
-			if errors.Is(err, context.Canceled) {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return
 			}
 			slog.Error("dispatcher.claim failed", "error", err)
@@ -92,12 +92,20 @@ func (d *Dispatcher) runWorker(ctx context.Context, id int) {
 				if err != nil {
 					slog.Error("store.fail failed", "error", err)
 				}
+				err = d.queue.Ack(writeCtx, j.ID)
+				if err != nil {
+					slog.Error("queue.ack failed", "error", err)
+				}
 				continue
 			} else {
 				slog.Error("job.failed.permanent", "job_id", j.ID, "worker_id", id, "error", err)
 				err = d.store.FailPermanently(writeCtx, j.ID, err.Error())
 				if err != nil {
-					slog.Error("store.failPermanently failed", "error", err)
+					slog.Error("store.fail failed", "error", err)
+				}
+				err = d.queue.Ack(writeCtx, j.ID)
+				if err != nil {
+					slog.Error("queue.ack failed", "error", err)
 				}
 				continue
 			}
@@ -109,6 +117,10 @@ func (d *Dispatcher) runWorker(ctx context.Context, id int) {
 		} else {
 			duration := time.Since(timeBeforeStart).Milliseconds()
 			slog.Info("job.completed", "job_id", j.ID, "worker_id", id, "duration_ms", duration)
+		}
+		err = d.queue.Ack(writeCtx, j.ID)
+		if err != nil {
+			slog.Error("queue.ack failed", "error", err)
 		}
 	}
 }

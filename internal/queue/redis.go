@@ -49,3 +49,7 @@ func (q *RedisQueue) Ack(ctx context.Context, jobID string) error {
 func (q *RedisQueue) ListProcessing(ctx context.Context) ([]string, error) {
 	return q.client.LRange(ctx, q.processingKey, 0, -1).Result()
 }
+
+func (q *RedisQueue) ListPending(ctx context.Context) ([]string, error) {
+	return q.client.LRange(ctx, q.pendingKey, 0, -1).Result()
+}

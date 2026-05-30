@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -150,9 +151,14 @@ func main() {
 	q := queue.NewRedisQueue(rdb, cfg.queuePendingKey, cfg.queueProcessingKey, cfg.queueClaimTimeout)
 	aiClient := ai.NewClient(cfg.anthropicAPIKey, cfg.aiStepTimeout, cfg.aiJobTimeout, cfg.aiMaxRetries, cfg.aiDefaultMaxSteps)
 	dispatcher := worker.NewDispatcher(store, cfg.workerCount, cfg.bufferSize, q, aiClient)
-	reaper := worker.NewReaper(store, cfg.reaperInterval, cfg.stuckJobTimeout)
+	reaper := worker.NewReaper(store, q, cfg.reaperInterval, cfg.stuckJobTimeout)
 
-	go dispatcher.Run(ctx)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		dispatcher.Run(ctx)
+	}()
 	go reaper.Run(ctx)
 
 	handler := api.NewHandler(store, q)
@@ -170,4 +176,6 @@ func main() {
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
+	wg.Wait()
+	slog.Info("server.shutdown")
 }

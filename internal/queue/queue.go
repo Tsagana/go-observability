@@ -15,4 +15,8 @@ type Queue interface {
 
 	// ListProcessing returns all job IDs currently in the processing list.
 	ListProcessing(ctx context.Context) ([]string, error)
+
+	// ListPending returns all job IDs currently in the pending list.
+	// Used by reaper to detect orphaned jobs.
+	ListPending(ctx context.Context) ([]string, error)
 }

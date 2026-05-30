@@ -58,3 +58,16 @@ func (q *MemoryQueue) ListProcessing(ctx context.Context) ([]string, error) {
 	copy(out, q.processing)
 	return out, nil
 }
+
+func (q *MemoryQueue) ListPending(ctx context.Context) ([]string, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	out := []string{}
+	for len(q.pending) > 0 {
+		out = append(out, <-q.pending)
+	}
+	for _, id := range out {
+		q.pending <- id
+	}
+	return out, nil
+}
