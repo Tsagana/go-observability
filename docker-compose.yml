@@ -34,24 +34,11 @@ services:
     container_name: go_proj_api
     environment:
       PORT: "8080"
-      DB_HOST: db
-      DB_PORT: "5432"
-      DB_NAME: ${POSTGRES_DB:-app}
-      DB_USER: ${POSTGRES_USER:-app}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-app}
-      DB_SSLMODE: "disable"
       DATABASE_URL: "postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@db:5432/${POSTGRES_DB:-app}?sslmode=disable"
-      WORKER_COUNT: "5"
-      JOB_CHANNEL_BUFFER: "5"
-      POLL_INTERVAL: "2s"
-      STUCK_JOB_TIMEOUT: "30s"
-      REAPER_INTERVAL: "10s"
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       REDIS_URL: "redis://redis:6379"
       QUEUE_PENDING_KEY: "jobs:pending"
       QUEUE_PROCESSING_KEY: "jobs:processing"
       QUEUE_CLAIM_TIMEOUT: "5s"
-
     ports:
       - "8081:8080"
     stop_grace_period: 30s
@@ -60,7 +47,32 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: ["./server"]
+    command: ["./api"]
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: go_proj_worker
+    environment:
+      DATABASE_URL: "postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@db:5432/${POSTGRES_DB:-app}?sslmode=disable"
+      REDIS_URL: "redis://redis:6379"
+      QUEUE_PENDING_KEY: "jobs:pending"
+      QUEUE_PROCESSING_KEY: "jobs:processing"
+      QUEUE_CLAIM_TIMEOUT: "5s"
+      WORKER_COUNT: "5"
+      JOB_CHANNEL_BUFFER: "5"
+      POLL_INTERVAL: "2s"
+      STUCK_JOB_TIMEOUT: "30s"
+      REAPER_INTERVAL: "10s"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    stop_grace_period: 30s
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["./worker"]
 
 volumes:
   pgdata:
