@@ -1,3 +1,6 @@
+-- outbox stores domain events atomically alongside job writes.
+-- The publisher process reads from here and forwards events to Redis.
+-- Named "outbox" after the transactional outbox pattern, not a mailbox.
 CREATE TABLE outbox (
     id           BIGSERIAL PRIMARY KEY,
     event_type   TEXT NOT NULL,

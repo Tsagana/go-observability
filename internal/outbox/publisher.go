@@ -7,20 +7,23 @@ import (
 	"log/slog"
 	"time"
 
+	"go-observability/internal/events"
 	"go-observability/internal/queue"
 )
 
 type Publisher struct {
 	store        *Store
 	jobsQueue    queue.Queue
+	eventsQueue  queue.Queue
 	batchSize    int
 	pollInterval time.Duration
 }
 
-func NewPublisher(store *Store, jobsQueue queue.Queue, batchSize int, pollInterval time.Duration) *Publisher {
+func NewPublisher(store *Store, jobsQueue queue.Queue, eventsQueue queue.Queue, batchSize int, pollInterval time.Duration) *Publisher {
 	return &Publisher{
 		store:        store,
 		jobsQueue:    jobsQueue,
+		eventsQueue:  eventsQueue,
 		batchSize:    batchSize,
 		pollInterval: pollInterval,
 	}
@@ -45,33 +48,63 @@ func (p *Publisher) Start(ctx context.Context) error {
 	}
 }
 
-// publishBatch fetches one batch of unpublished events, pushes job IDs to Redis,
-// and marks them published. Returns the number of events published.
+// publishBatch fetches one batch of unpublished events inside a single transaction,
+// pushes each event to both queues, then marks them published before committing.
 func (p *Publisher) publishBatch(ctx context.Context) (int, error) {
-	events, err := p.store.FetchUnpublished(ctx, p.batchSize)
+	tx, err := p.store.BeginTx(ctx)
 	if err != nil {
-		slog.Error("store.FetchUnpublished failed", "error", err)
 		return 0, err
 	}
+	defer tx.Rollback(ctx)
+
+	batch, err := p.store.FetchUnpublishedTx(ctx, tx, p.batchSize)
+	if err != nil {
+		return 0, err
+	}
+
 	var ids []int64
-	for _, event := range events {
-		jobID, err := parseJobID(event.Payload)
+	for _, event := range batch {
+		payload, err := parsePayload(event.Payload)
 		if err != nil {
-			slog.Error("publisher.parseJobID failed", "event_id", event.ID, "error", err)
+			slog.Error("publisher.parsePayload failed", "event_id", event.ID, "error", err)
 			continue
 		}
-		err = p.jobsQueue.Push(ctx, jobID)
-		if err != nil {
-			slog.Error("jobsQueue.push failed", "event_id", event.ID, "error", err)
+
+		if err := p.jobsQueue.Push(ctx, payload.JobID); err != nil {
+			slog.Error("publisher.jobsQueue.Push failed", "event_id", event.ID, "error", err)
 			continue
 		}
+
+		envelope, err := json.Marshal(events.EventEnvelope{
+			EventID:   event.ID,
+			EventType: event.EventType,
+			JobID:     payload.JobID,
+		})
+		if err != nil {
+			slog.Error("publisher.marshal envelope failed", "event_id", event.ID, "error", err)
+			continue
+		}
+
+		if err := p.eventsQueue.Push(ctx, string(envelope)); err != nil {
+			slog.Error("publisher.eventsQueue.Push failed", "event_id", event.ID, "error", err)
+			continue
+		}
+
 		ids = append(ids, event.ID)
 	}
-	err = p.store.MarkPublished(ctx, ids)
-	if err != nil {
-		slog.Error("store.markPublished push failed", "error", err)
+
+	if len(ids) == 0 {
+		return 0, nil
+	}
+
+	if err := p.store.MarkPublishedTx(ctx, tx, ids); err != nil {
 		return 0, err
 	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+
 	return len(ids), nil
 }
 
@@ -80,11 +113,7 @@ type jobCreatedPayload struct {
 	JobID string `json:"job_id"`
 }
 
-func parseJobID(payload []byte) (string, error) {
+func parsePayload(raw []byte) (jobCreatedPayload, error) {
 	var p jobCreatedPayload
-	if err := json.Unmarshal(payload, &p); err != nil {
-		return "", err
-	}
-	return p.JobID, nil
+	return p, json.Unmarshal(raw, &p)
 }
-

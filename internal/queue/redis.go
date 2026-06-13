@@ -53,3 +53,16 @@ func (q *RedisQueue) ListProcessing(ctx context.Context) ([]string, error) {
 func (q *RedisQueue) ListPending(ctx context.Context) ([]string, error) {
 	return q.client.LRange(ctx, q.pendingKey, 0, -1).Result()
 }
+
+// Pop blocks up to claimTimeout waiting for a value, then returns it.
+// Returns ("", nil) on timeout — not an error.
+func (q *RedisQueue) Pop(ctx context.Context) (string, error) {
+	result, err := q.client.BLPop(ctx, q.claimTimeout, q.pendingKey).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return "", nil
+		}
+		return "", err
+	}
+	return result[1], nil
+}

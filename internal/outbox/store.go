@@ -8,20 +8,23 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Event struct {
-	ID          int64
-	EventType   string
-	Payload     []byte
-	CreatedAt   time.Time
-	PublishedAt *time.Time
-}
-
+// Store provides access to the outbox table, which holds domain events written
+// atomically with job inserts. The publisher reads these and forwards them to Redis.
 type Store struct {
 	db *pgxpool.Pool
 }
 
 func NewStore(db *pgxpool.Pool) *Store {
 	return &Store{db: db}
+}
+
+// Event represents a row in the outbox table.
+type Event struct {
+	ID          int64
+	EventType   string
+	Payload     []byte
+	CreatedAt   time.Time
+	PublishedAt *time.Time
 }
 
 // InsertTx writes an outbox event inside an existing transaction.

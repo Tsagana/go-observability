@@ -22,6 +22,7 @@ type config struct {
 	queuePendingKey    string
 	queueProcessingKey string
 	queueClaimTimeout  time.Duration
+	eventsKey          string
 	batchSize          int
 	pollInterval       time.Duration
 }
@@ -52,12 +53,18 @@ func loadConfig() config {
 		pollInterval = 1 * time.Second
 	}
 
+	eventsKey := os.Getenv("EVENTS_QUEUE_KEY")
+	if eventsKey == "" {
+		eventsKey = "events:pending"
+	}
+
 	return config{
 		databaseURL:        os.Getenv("DATABASE_URL"),
 		redisURL:           redisURL,
 		queuePendingKey:    queuePendingKey,
 		queueProcessingKey: queueProcessingKey,
 		queueClaimTimeout:  queueClaimTimeout,
+		eventsKey:          eventsKey,
 		batchSize:          batchSize,
 		pollInterval:       pollInterval,
 	}
@@ -85,7 +92,8 @@ func main() {
 
 	outboxStore := outbox.NewStore(dbpool)
 	jobsQueue := queue.NewRedisQueue(rdb, cfg.queuePendingKey, cfg.queueProcessingKey, cfg.queueClaimTimeout)
-	publisher := outbox.NewPublisher(outboxStore, jobsQueue, cfg.batchSize, cfg.pollInterval)
+	eventsQueue := queue.NewRedisQueue(rdb, cfg.eventsKey, "", 0)
+	publisher := outbox.NewPublisher(outboxStore, jobsQueue, eventsQueue, cfg.batchSize, cfg.pollInterval)
 
 	slog.Info("publisher.starting", "batch_size", cfg.batchSize, "poll_interval", cfg.pollInterval)
 	if err := publisher.Start(ctx); err != nil {

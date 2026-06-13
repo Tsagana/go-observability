@@ -81,6 +81,7 @@ services:
       QUEUE_CLAIM_TIMEOUT: "5s"
       PUBLISHER_BATCH_SIZE: "100"
       PUBLISHER_POLL_INTERVAL: "1s"
+      EVENTS_QUEUE_KEY: "events:pending"
     stop_grace_period: 30s
     depends_on:
       db:
@@ -88,6 +89,24 @@ services:
       redis:
         condition: service_healthy
     command: ["./publisher"]
+
+  consumer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: go_proj_consumer
+    environment:
+      DATABASE_URL: "postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@db:5432/${POSTGRES_DB:-app}?sslmode=disable"
+      REDIS_URL: "redis://redis:6379"
+      EVENTS_QUEUE_KEY: "events:pending"
+      CONSUMER_BLOCK_TIMEOUT: "5s"
+    stop_grace_period: 30s
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["./consumer"]
 
 volumes:
   pgdata:
