@@ -26,11 +26,11 @@ type Store struct {
 	db *pgxpool.Pool
 }
 
-func NewStore(db *pgxpool.Pool) *Store {
-	return &Store{db: db}
+type querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-func (s *Store) Create(ctx context.Context, payload []byte) (*Job, error) {
+func (s *Store) createRow(ctx context.Context, q querier, payload []byte) (*Job, error) {
 	query := `
         INSERT INTO jobs (payload)
         VALUES ($1)
@@ -38,7 +38,7 @@ func (s *Store) Create(ctx context.Context, payload []byte) (*Job, error) {
     `
 	var j Job
 
-	err := s.db.QueryRow(ctx, query, payload).Scan(
+	err := q.QueryRow(ctx, query, payload).Scan(
 		&j.ID, &j.Status, &j.Payload, &j.Result, &j.Error, &j.RetryCount, &j.RetryAfter, &j.CreatedAt, &j.UpdatedAt,
 	)
 
@@ -47,6 +47,19 @@ func (s *Store) Create(ctx context.Context, payload []byte) (*Job, error) {
 	}
 
 	return &j, nil
+}
+
+func NewStore(db *pgxpool.Pool) *Store {
+	return &Store{db: db}
+}
+
+func (s *Store) Create(ctx context.Context, payload []byte) (*Job, error) {
+	return s.createRow(ctx, s.db, payload)
+}
+
+// CreateTx is identical to Create but runs inside the caller's transaction.
+func (s *Store) CreateTx(ctx context.Context, tx pgx.Tx, payload []byte) (*Job, error) {
+	return s.createRow(ctx, tx, payload)
 }
 
 func (s *Store) Get(ctx context.Context, id string) (*Job, error) {

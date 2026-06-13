@@ -35,17 +35,11 @@ services:
     environment:
       PORT: "8080"
       DATABASE_URL: "postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@db:5432/${POSTGRES_DB:-app}?sslmode=disable"
-      REDIS_URL: "redis://redis:6379"
-      QUEUE_PENDING_KEY: "jobs:pending"
-      QUEUE_PROCESSING_KEY: "jobs:processing"
-      QUEUE_CLAIM_TIMEOUT: "5s"
     ports:
       - "8081:8080"
     stop_grace_period: 30s
     depends_on:
       db:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     command: ["./api"]
 
@@ -73,6 +67,27 @@ services:
       redis:
         condition: service_healthy
     command: ["./worker"]
+
+  publisher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: go_proj_publisher
+    environment:
+      DATABASE_URL: "postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@db:5432/${POSTGRES_DB:-app}?sslmode=disable"
+      REDIS_URL: "redis://redis:6379"
+      QUEUE_PENDING_KEY: "jobs:pending"
+      QUEUE_PROCESSING_KEY: "jobs:processing"
+      QUEUE_CLAIM_TIMEOUT: "5s"
+      PUBLISHER_BATCH_SIZE: "100"
+      PUBLISHER_POLL_INTERVAL: "1s"
+    stop_grace_period: 30s
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["./publisher"]
 
 volumes:
   pgdata:

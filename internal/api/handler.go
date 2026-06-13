@@ -5,17 +5,20 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"go-observability/internal/job"
-	"go-observability/internal/queue"
+	"go-observability/internal/outbox"
 )
 
 type Handler struct {
-	store *job.Store
-	queue queue.Queue
+	store       *job.Store
+	outboxStore *outbox.Store
+	pool        *pgxpool.Pool
 }
 
-func NewHandler(store *job.Store, queue queue.Queue) *Handler {
-	return &Handler{store: store, queue: queue}
+func NewHandler(store *job.Store, outboxStore *outbox.Store, pool *pgxpool.Pool) *Handler {
+	return &Handler{store: store, outboxStore: outboxStore, pool: pool}
 }
 
 type createJobRequest struct {
@@ -35,16 +38,35 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	createdJob, err := h.store.Create(r.Context(), req.Payload)
+	ctx := r.Context()
+
+	tx, err := h.pool.Begin(ctx)
 	if err != nil {
-		slog.Error("store.create failed", "error", err)
+		slog.Error("pool.begin failed", "error", err)
+		http.Error(w, "error when creating job", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	createdJob, err := h.store.CreateTx(ctx, tx, req.Payload)
+	if err != nil {
+		slog.Error("store.createTx failed", "error", err)
 		http.Error(w, "error when creating job", http.StatusInternalServerError)
 		return
 	}
 
-	err = h.queue.Push(r.Context(), createdJob.ID)
-	if err != nil {
-		slog.Error("queue.push failed", "error", err)
+	eventPayload, _ := json.Marshal(map[string]string{"job_id": createdJob.ID})
+
+	if err := h.outboxStore.InsertTx(ctx, tx, "job.created", eventPayload); err != nil {
+		slog.Error("outbox.insertTx failed", "error", err)
+		http.Error(w, "error when creating job", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		slog.Error("tx.commit failed", "error", err)
+		http.Error(w, "error when creating job", http.StatusInternalServerError)
+		return
 	}
 
 	writeJSON(w, http.StatusAccepted, createJobResponse{ID: createdJob.ID, Status: createdJob.Status})
