@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Job Processing System — V4 Final Architecture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #F5F4F0;
+    padding: 32px 24px;
+    color: #2C2C2A;
+    font-size: 12px;
+  }
+  h1 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+  .subtitle { font-size: 12px; color: #888780; margin-bottom: 28px; }
+  h2.section-h { font-size: 13px; font-weight: 600; margin: 24px 0 10px; color: #444441; letter-spacing: 0.04em; }
+
+  .page { max-width: 1280px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+
+  /* services row */
+  .services-row { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; }
+  .service {
+    border-radius: 12px;
+    padding: 14px;
+    display: flex; flex-direction: column;
+  }
+  .service .label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; opacity: 0.6; margin-bottom: 6px;
+  }
+  .service .title { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+  .service .file  { font-size: 11px; font-family: ui-monospace, Menlo, monospace; opacity: 0.65; margin-bottom: 10px; }
+  .service .step  { font-size: 11px; line-height: 1.5; margin-bottom: 6px; }
+  .service .step strong { font-weight: 600; }
+  .service .code  { font-family: ui-monospace, Menlo, monospace; font-size: 11px; background: rgba(0,0,0,0.04); padding: 6px 8px; border-radius: 4px; line-height: 1.5; }
+
+  .s-api    { background: #EEEDFE; border: 1px solid #7B72E0; color: #3C3489; }
+  .s-pub    { background: #FEEFE2; border: 1px solid #C8882A; color: #663806; }
+  .s-worker { background: #FAECE7; border: 1px solid #D06040; color: #712B13; }
+  .s-cons   { background: #E1F5EE; border: 1px solid #3CB48A; color: #085041; }
+
+  /* infrastructure row */
+  .infra-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .infra {
+    border-radius: 12px;
+    padding: 14px;
+    background: #F1EFE8; border: 1px solid #B8B6AE;
+  }
+  .infra .label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; opacity: 0.55; margin-bottom: 8px;
+  }
+  .infra .title { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+  .table {
+    background: #FFF; border-radius: 6px; padding: 9px 11px;
+    margin-bottom: 6px; border: 1px solid #DCD9CF;
+    font-size: 11px; line-height: 1.5;
+  }
+  .table .tname { font-family: ui-monospace, Menlo, monospace; font-weight: 600; font-size: 12px; }
+  .table .cols  { opacity: 0.65; font-family: ui-monospace, Menlo, monospace; }
+  .table .anno  { font-size: 10px; opacity: 0.6; font-style: italic; margin-top: 2px; }
+
+  /* external box */
+  .external {
+    border-radius: 12px;
+    padding: 12px 14px;
+    background: #FDF3E3; border: 1px dashed #C78A2A;
+    color: #633806;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .external .label { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.6; }
+  .external .title { font-size: 13px; font-weight: 600; }
+  .external .meta  { font-size: 11px; opacity: 0.75; }
+
+  /* shutdown grid */
+  .shutdown {
+    background: #F1EFE8; border: 1px dashed #B8B6AE; border-radius: 10px; padding: 14px;
+  }
+  .shutdown-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-top: 8px; }
+  .shutdown-cell {
+    background: #ECEAE3; border: 1px solid #B8B6AE; border-radius: 6px;
+    padding: 8px 10px; font-size: 11px; line-height: 1.5;
+  }
+  .shutdown-cell strong { display: block; font-size: 12px; margin-bottom: 4px; }
+
+  /* data flow */
+  .flow {
+    background: #FFF; border: 1px solid #DCD9CF; border-radius: 10px; padding: 14px;
+  }
+  .flow-step {
+    margin-bottom: 12px; padding-left: 14px; border-left: 3px solid;
+    line-height: 1.55;
+  }
+  .flow-step:last-child { margin-bottom: 0; }
+  .flow-step .num { font-weight: 700; font-size: 10px; letter-spacing: 0.08em; opacity: 0.55; }
+  .flow-step .name { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .flow-step .body { font-family: ui-monospace, Menlo, monospace; font-size: 11px; line-height: 1.6; opacity: 0.78; }
+  .flow-step .note { font-size: 11px; opacity: 0.6; font-style: italic; margin-top: 4px; }
+  .f-create { border-color: #7B72E0; }
+  .f-relay  { border-color: #C8882A; }
+  .f-proc   { border-color: #D06040; }
+  .f-stuck  { border-color: #C8882A; }
+  .f-cons   { border-color: #3CB48A; }
+  .f-poll   { border-color: #7B72E0; }
+
+  /* connectors */
+  .connectors {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 11px; color: #5f5e5a;
+    margin: 0 4px;
+  }
+  .conn {
+    background: rgba(0,0,0,0.04); border-radius: 4px;
+    padding: 5px 10px;
+  }
+
+  .arrow-cell {
+    display: flex; align-items: center; justify-content: center;
+    color: #888780; font-size: 18px;
+  }
+
+  .legend { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 8px; font-size: 11px; color: #5f5e5a; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .lb { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<h1>Job Processing System — V4 Final Architecture</h1>
+<p class="subtitle">Generated from codebase · 4 services · Postgres + Redis · transactional outbox · idempotent consumer</p>
+
+<div class="page">
+
+  <!-- ═════════════ SERVICES ═════════════ -->
+  <h2 class="section-h">Services — four independent processes</h2>
+  <div class="services-row">
+
+    <!-- API -->
+    <div class="service s-api">
+      <div class="label">Service 1</div>
+      <div class="title">API</div>
+      <div class="file">cmd/api/main.go · :8080</div>
+      <div class="step"><strong>POST /jobs</strong> — atomic dual-write</div>
+      <div class="code">BEGIN TX<br>&nbsp;&nbsp;INSERT jobs (pending)<br>&nbsp;&nbsp;INSERT outbox (job.created)<br>COMMIT → 202</div>
+      <div class="step" style="margin-top:8px;"><strong>GET /jobs/{id}</strong></div>
+      <div class="code">SELECT FROM jobs → 200/404</div>
+      <div class="step" style="margin-top:8px;"><strong>GET /healthz</strong></div>
+    </div>
+
+    <!-- PUBLISHER -->
+    <div class="service s-pub">
+      <div class="label">Service 2</div>
+      <div class="title">Publisher</div>
+      <div class="file">cmd/publisher/main.go</div>
+      <div class="step"><strong>loop every 1s</strong></div>
+      <div class="code">BEGIN TX<br>&nbsp;&nbsp;SELECT outbox<br>&nbsp;&nbsp;&nbsp;&nbsp;WHERE published_at IS NULL<br>&nbsp;&nbsp;&nbsp;&nbsp;FOR UPDATE SKIP LOCKED<br>&nbsp;&nbsp;&nbsp;&nbsp;LIMIT 100<br><br>&nbsp;&nbsp;for each event:<br>&nbsp;&nbsp;&nbsp;&nbsp;LPUSH jobs:pending<br>&nbsp;&nbsp;&nbsp;&nbsp;LPUSH events:pending<br><br>&nbsp;&nbsp;UPDATE published_at = now()<br>COMMIT</div>
+      <div class="step" style="margin-top:8px;font-style:italic;opacity:0.7;">crash before UPDATE → event republished next loop → at-least-once</div>
+    </div>
+
+    <!-- WORKER -->
+    <div class="service s-worker">
+      <div class="label">Service 3</div>
+      <div class="title">Worker</div>
+      <div class="file">cmd/worker/main.go</div>
+      <div class="step"><strong>Dispatcher</strong></div>
+      <div class="code">BLMOVE jobs:pending<br>&nbsp;&nbsp;&nbsp;&nbsp;→ jobs:processing<br>send jobID to channel</div>
+      <div class="step" style="margin-top:8px;"><strong>Worker pool × N (default 5)</strong></div>
+      <div class="code">UPDATE jobs status=processing<br>run AI agentic loop<br>&nbsp;&nbsp;(tool calls, multi-step)<br><br>on success:<br>&nbsp;&nbsp;UPDATE jobs completed<br>&nbsp;&nbsp;LREM jobs:processing<br><br>on failure:<br>&nbsp;&nbsp;retry_count++, backoff 2^n<br>&nbsp;&nbsp;UPDATE jobs pending<br>&nbsp;&nbsp;LREM jobs:processing</div>
+      <div class="step" style="margin-top:8px;"><strong>Reaper (every 60s)</strong></div>
+      <div class="code">SELECT processing<br>&nbsp;&nbsp;WHERE updated_at &lt; now()-300s<br>UPDATE pending, retry_count++<br>LREM jobs:processing</div>
+    </div>
+
+    <!-- CONSUMER -->
+    <div class="service s-cons">
+      <div class="label">Service 4</div>
+      <div class="title">Consumer</div>
+      <div class="file">cmd/consumer/main.go</div>
+      <div class="step"><strong>loop</strong></div>
+      <div class="code">BLPOP events:pending (5s timeout)<br><br>decode EventEnvelope:<br>&nbsp;&nbsp;{event_id, event_type, job_id}<br><br>INSERT processed_events<br>&nbsp;&nbsp;ON CONFLICT → skip<br><br>if inserted: log processed<br>if conflict: log duplicate</div>
+      <div class="step" style="margin-top:8px;font-style:italic;opacity:0.7;">PK constraint enforces idempotency — at-most-once processing of duplicate events</div>
+    </div>
+
+  </div>
+
+  <!-- ═════════════ INFRASTRUCTURE ═════════════ -->
+  <h2 class="section-h">Shared infrastructure — coordination through state stores</h2>
+  <div class="infra-row">
+
+    <!-- POSTGRES -->
+    <div class="infra">
+      <div class="label">Source of truth</div>
+      <div class="title">PostgreSQL</div>
+
+      <div class="table">
+        <div class="tname">jobs</div>
+        <div class="cols">id · payload · status · result · error · retry_count · retry_after</div>
+        <div class="anno">written by: API (create), worker (state + result), reaper (stuck recovery)</div>
+      </div>
+
+      <div class="table">
+        <div class="tname">outbox</div>
+        <div class="cols">id · event_type · payload · created_at · published_at</div>
+        <div class="anno">written by: API (insert), publisher (mark published). partial idx on unpublished.</div>
+      </div>
+
+      <div class="table">
+        <div class="tname">processed_events</div>
+        <div class="cols">event_id (PK) · processed_at</div>
+        <div class="anno">written by: consumer. PK constraint = idempotency mechanism.</div>
+      </div>
+    </div>
+
+    <!-- REDIS -->
+    <div class="infra">
+      <div class="label">Delivery layer</div>
+      <div class="title">Redis</div>
+
+      <div class="table">
+        <div class="tname">jobs:pending</div>
+        <div class="cols">list of job IDs waiting to be claimed</div>
+        <div class="anno">LPUSH by publisher · BLMOVE by dispatcher</div>
+      </div>
+
+      <div class="table">
+        <div class="tname">jobs:processing</div>
+        <div class="cols">list of job IDs currently claimed</div>
+        <div class="anno">BLMOVE target (atomic claim) · LREM by worker on terminal state</div>
+      </div>
+
+      <div class="table">
+        <div class="tname">events:pending</div>
+        <div class="cols">list of event envelopes for consumer</div>
+        <div class="anno">LPUSH by publisher · BLPOP by consumer</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═════════════ EXTERNAL ═════════════ -->
+  <h2 class="section-h">External dependency</h2>
+  <div class="external">
+    <div>
+      <div class="label">External API</div>
+      <div class="title">Anthropic API · claude-sonnet-4-6</div>
+    </div>
+    <div class="meta">called by worker agentic loop · rate limited · retryable vs permanent error classification</div>
+  </div>
+
+  <!-- ═════════════ GRACEFUL SHUTDOWN ═════════════ -->
+  <h2 class="section-h">Graceful shutdown</h2>
+  <div class="shutdown">
+    <div style="font-size:12px;margin-bottom:6px;">
+      <strong>SIGTERM / SIGINT</strong> → <code style="font-family:ui-monospace,Menlo,monospace;background:rgba(0,0,0,0.04);padding:2px 6px;border-radius:3px;">signal.NotifyContext()</code> cancels each process's context
+    </div>
+    <div class="shutdown-grid">
+      <div class="shutdown-cell">
+        <strong>API</strong>
+        &lt;-ctx.Done()<br>
+        srv.Shutdown()<br>
+        drain in-flight HTTP requests
+      </div>
+      <div class="shutdown-cell">
+        <strong>Publisher</strong>
+        &lt;-ctx.Done()<br>
+        poll loop exits<br>
+        current batch commits or rolls back cleanly
+      </div>
+      <div class="shutdown-cell">
+        <strong>Consumer</strong>
+        BLPOP returns context error<br>
+        loop returns nil
+      </div>
+      <div class="shutdown-cell">
+        <strong>Worker</strong>
+        &lt;-ctx.Done()<br>
+        close channel<br>
+        workers finish current job<br>
+        wg.Wait()
+      </div>
+    </div>
+  </div>
+
+  <!-- ═════════════ DATA FLOW ═════════════ -->
+  <h2 class="section-h">Data flow summary</h2>
+  <div class="flow">
+
+    <div class="flow-step f-create">
+      <div class="num">FLOW 1</div>
+      <div class="name">Job creation — atomic</div>
+      <div class="body">Client → POST /jobs → API → [BEGIN TX: INSERT jobs + INSERT outbox] → COMMIT</div>
+    </div>
+
+    <div class="flow-step f-relay">
+      <div class="num">FLOW 2</div>
+      <div class="name">Event relay — at-least-once</div>
+      <div class="body">Publisher → SELECT outbox (SKIP LOCKED) → LPUSH jobs:pending + LPUSH events:pending → UPDATE outbox.published_at → COMMIT</div>
+      <div class="note">crash before UPDATE → event republished next iteration</div>
+    </div>
+
+    <div class="flow-step f-proc">
+      <div class="num">FLOW 3</div>
+      <div class="name">Job processing</div>
+      <div class="body">Dispatcher → BLMOVE jobs:pending → jobs:processing (atomic claim) → channel<br>Worker → AI loop → UPDATE jobs (completed/failed) → LREM jobs:processing</div>
+    </div>
+
+    <div class="flow-step f-stuck">
+      <div class="num">FLOW 4</div>
+      <div class="name">Stuck job recovery</div>
+      <div class="body">Reaper → SELECT processing where stuck &gt; 300s → reset to pending → LREM jobs:processing</div>
+    </div>
+
+    <div class="flow-step f-cons">
+      <div class="num">FLOW 5</div>
+      <div class="name">Event consumption — idempotent</div>
+      <div class="body">Consumer → BLPOP events:pending → INSERT processed_events ON CONFLICT SKIP</div>
+      <div class="note">duplicate event → PK violation → skip + log</div>
+    </div>
+
+    <div class="flow-step f-poll">
+      <div class="num">FLOW 6</div>
+      <div class="name">Job status polling</div>
+      <div class="body">Client → GET /jobs/{id} → SELECT FROM jobs → 200 {status, result, error}</div>
+    </div>
+
+  </div>
+
+  <!-- ═════════════ LEGEND ═════════════ -->
+  <div class="legend">
+    <div class="legend-item"><div class="lb" style="background:#EEEDFE;border:1px solid #7B72E0;"></div> API service</div>
+    <div class="legend-item"><div class="lb" style="background:#FEEFE2;border:1px solid #C8882A;"></div> Publisher service</div>
+    <div class="legend-item"><div class="lb" style="background:#FAECE7;border:1px solid #D06040;"></div> Worker service</div>
+    <div class="legend-item"><div class="lb" style="background:#E1F5EE;border:1px solid #3CB48A;"></div> Consumer service</div>
+    <div class="legend-item"><div class="lb" style="background:#F1EFE8;border:1px solid #B8B6AE;"></div> Shared infrastructure (Postgres, Redis)</div>
+    <div class="legend-item"><div class="lb" style="background:#FDF3E3;border:1px dashed #C78A2A;"></div> External service (Anthropic)</div>
+  </div>
+
+</div>
+</body>
+</html>
